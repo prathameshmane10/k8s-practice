@@ -1,0 +1,203 @@
+# Kubeadm Cluster Installation Guide
+
+This guide outlines the step-by-step instructions to provision a multi-node production-ready Kubernetes cluster on AWS EC2 instances using **kubeadm**, **containerd**, and **Calico CNI**.
+
+---
+
+## Prerequisites
+
+- **Operating System:** Ubuntu 20.04 / 22.04 LTS (or later)
+- **Privileges:** `sudo` access on all instances
+- **Network:** Internet access across all nodes
+- **Instance Type:** `t2.medium` or higher (Minimum 2 vCPUs and 2 GB RAM per node)
+
+---
+
+## Part 1: AWS EC2 Security Group Setup
+
+All master and worker nodes must be in the same AWS Security Group to allow internal communication across cluster components.
+
+### Step 1: Create Security Group Rules
+
+1. Log in to the **AWS Management Console** and navigate to the **EC2 Dashboard**.
+2. Under **Network & Security**, select **Security Groups**.
+3. Click **Create Security Group**:
+   - **Name:** `Kubernetes-Cluster-SG`
+   - **Description:** Security group for Kubernetes Kubeadm Nodes
+   - **VPC:** Select your default or custom VPC
+4. Add the following **Inbound Rules**:
+
+| Type | Protocol | Port Range | Source | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| **SSH** | TCP | `22` | `0.0.0.0/0` (or your IP) | Remote SSH access |
+| **Custom TCP** | TCP | `6443` | `0.0.0.0/0` (or VPC CIDR) | Kubernetes API Server |
+| **Custom TCP** | TCP | `10250` | `0.0.0.0/0` (or VPC CIDR) | Kubelet API |
+| **Custom TCP** | TCP | `10259` | `0.0.0.0/0` (or VPC CIDR) | kube-scheduler |
+| **Custom TCP** | TCP | `10257` | `0.0.0.0/0` (or VPC CIDR) | kube-controller-manager |
+| **Custom TCP** | TCP | `2379-2380` | `0.0.0.0/0` (or VPC CIDR) | etcd server client API |
+| **Custom TCP** | TCP | `30000-32767` | `0.0.0.0/0` | NodePort Services |
+
+5. Click **Create security group**.
+
+### Step 2: Assign Security Group to Instances
+- Select the `Kubernetes-Cluster-SG` security group when launching your Master and Worker EC2 instances.
+
+---
+
+## Part 2: Setup Executed on BOTH Master & Worker Nodes
+
+Run the following commands on **all nodes** (Master and Worker) before initializing the cluster.
+
+### 1. Disable Swap Space
+Kubernetes requires swap memory to be disabled:
+
+```bash
+sudo swapoff -a
+# To permanently disable swap across reboots:
+sudo sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+```
+
+### 2. Load Required Kernel Modules
+
+```bash
+cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
+overlay
+br_netfilter
+EOF
+
+sudo modprobe overlay
+sudo modprobe br_netfilter
+```
+
+### 3. Configure Sysctl Network Parameters
+
+```bash
+cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
+net.bridge.bridge-nf-call-iptables  = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+net.ipv4.ip_forward                 = 1
+EOF
+
+sudo sysctl --system
+
+# Verify kernel modules are active:
+lsmod | grep br_netfilter
+lsmod | grep overlay
+```
+
+### 4. Install Containerd Runtime
+
+```bash
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl
+
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+sudo apt-get update
+sudo apt-get install -y containerd.io
+
+# Generate default configuration with SystemdCgroup enabled
+containerd config default | sed -e 's/SystemdCgroup = false/SystemdCgroup = true/' -e 's/sandbox_image = "registry.k8s.io\/pause:3.6"/sandbox_image = "registry.k8s.io\/pause:3.9"/' | sudo tee /etc/containerd/config.toml
+
+sudo systemctl restart containerd
+sudo systemctl status containerd
+```
+
+### 5. Install Kubeadm, Kubelet, and Kubectl
+
+```bash
+sudo apt-get update
+sudo apt-get install -y apt-transport-https ca-certificates curl gpg
+
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /' | sudo tee /etc/sources.list.d/kubernetes.list
+
+sudo apt-get update
+sudo apt-get install -y kubelet kubeadm kubectl
+sudo apt-mark hold kubelet kubeadm kubectl
+```
+
+---
+
+## Part 3: Execute ONLY on the Master Node
+
+### 1. Initialize Control Plane
+
+```bash
+sudo kubeadm init
+```
+
+### 2. Configure Local Kubeconfig
+
+```bash
+mkdir -p "$HOME"/.kube
+sudo cp -i /etc/kubernetes/admin.conf "$HOME"/.kube/config
+sudo chown "$(id -u)":"$(id -g)" "$HOME"/.kube/config
+```
+
+### 3. Install Pod Network Add-on (Calico CNI)
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.26.0/manifests/calico.yaml
+```
+
+### 4. Retrieve Worker Join Command
+
+If you need to retrieve or generate a new join token:
+
+```bash
+kubeadm token create --print-join-command
+```
+
+> **Note:** Save the entire output command generated by this step. You will use it to join your worker nodes.
+
+---
+
+## Part 4: Execute ONLY on ALL Worker Nodes
+
+### 1. Reset Pre-flight Checks (Optional Clean Slate)
+
+```bash
+sudo kubeadm reset -f
+```
+
+### 2. Join the Cluster
+
+Paste the join command retrieved from the master node. Ensure you add `sudo` at the beginning and optional verbosity `--v=5` at the end:
+
+```bash
+sudo kubeadm join <private-ip-of-control-plane>:6443 \
+  --token <token> \
+  --discovery-token-ca-cert-hash sha256:<hash> \
+  --cri-socket "unix:///run/containerd/containerd.sock" \
+  --v=5
+```
+
+---
+
+## Part 5: Cluster Verification
+
+On the **Master Node**, run:
+
+```bash
+kubectl get nodes
+```
+
+**Expected Output:**
+
+```text
+NAME         STATUS   ROLES           AGE     VERSION
+master-node  Ready    control-plane   5m      v1.29.x
+worker-node1 Ready    <none>          2m      v1.29.x
+```
+
+Verify system pods status across all namespaces:
+
+```bash
+kubectl get pods -A
+```
