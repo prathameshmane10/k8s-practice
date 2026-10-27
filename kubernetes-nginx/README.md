@@ -1,12 +1,13 @@
+
 # Kubernetes Nginx Deployment and Workload Practice
 
 ## 1. Project Overview
 
-This project demonstrates hands-on Kubernetes practice using Nginx and different Kubernetes workload resources.
+This project demonstrates hands-on Kubernetes practice using Nginx and different Kubernetes resources.
 
-The project covers Namespace, Pod, Deployment, ReplicaSet, DaemonSet, Job, and CronJob. It also includes resource verification, troubleshooting, port forwarding, and cleanup commands.
+The project covers Namespace, Pod, Deployment, ReplicaSet, DaemonSet, Job, CronJob, Persistent Volume (PV), Persistent Volume Claim (PVC), and Service. It also includes resource verification, troubleshooting, networking, storage, and cleanup commands.
 
-The purpose of this project is to understand how Kubernetes manages application workloads, maintains the desired number of replicas, executes batch tasks, and schedules recurring jobs.
+The objective is to understand how Kubernetes manages application workloads, provides stable network access to Pods, maintains persistent storage, and executes scheduled tasks.
 
 ## 2. Project Directory Structure
 
@@ -23,13 +24,16 @@ k8s-practice/
 │       ├── replicasets.yml
 │       ├── daemonsets.yml
 │       ├── job.yml
-│       └── cron-job.yml
+│       ├── cron-job.yml
+│       ├── service.yml
+│       ├── persistent-volume.yml
+│       └── persistent-volume-claim.yml
 └── minikube/
 ```
 
 ## 3. Prerequisites
 
-Before starting, ensure that you have a running Kubernetes cluster, kubectl installed and configured, and access to the cluster.
+Ensure that you have a running Kubernetes cluster, `kubectl` installed, and access to the cluster.
 
 Check the current Kubernetes context:
 
@@ -37,13 +41,13 @@ Check the current Kubernetes context:
 kubectl config current-context
 ```
 
-Check the cluster connection:
+Check cluster information:
 
 ```bash
 kubectl cluster-info
 ```
 
-Check available cluster nodes:
+Check cluster nodes:
 
 ```bash
 kubectl get nodes
@@ -59,7 +63,9 @@ cd ~/k8s-practice/kubernetes-nginx
 
 ### What Is a Namespace?
 
-A Namespace is a logical way to organize and separate Kubernetes resources within a cluster. In this project, the namespace is named `nginx`.
+A Namespace provides logical separation and organization for Kubernetes resources within a cluster.
+
+In this project, the namespace is named `nginx`.
 
 ### Manifest File
 
@@ -109,8 +115,6 @@ kubectl get pods -n nginx -o wide
 kubectl describe pod -n nginx <pod-name>
 ```
 
-Replace `<pod-name>` with the actual Pod name.
-
 ### View Pod Logs
 
 ```bash
@@ -156,15 +160,10 @@ kubectl get deployment nginx-deployment -n nginx
 kubectl describe deployment nginx-deployment -n nginx
 ```
 
-### Check ReplicaSets
+### Check ReplicaSets and Pods
 
 ```bash
 kubectl get replicasets -n nginx
-```
-
-### Check Pods
-
-```bash
 kubectl get pods -n nginx -o wide
 ```
 
@@ -176,13 +175,13 @@ kubectl logs -n nginx -l app=nginx
 
 ### Access Nginx Using Port Forwarding
 
-Run this command and keep the terminal open:
+Run the following command and keep the terminal open:
 
 ```bash
 kubectl port-forward -n nginx deployment/nginx-deployment 8080:80
 ```
 
-Open another terminal and run:
+Open another terminal:
 
 ```bash
 curl http://localhost:8080
@@ -201,8 +200,6 @@ kubectl delete -f nginx/deployment.yml
 ### What Is a ReplicaSet?
 
 A ReplicaSet ensures that a specified number of matching Pod replicas are running at a given time.
-
-For example, if a ReplicaSet specifies two replicas, Kubernetes attempts to maintain two matching Pods.
 
 In most application deployments, ReplicaSets are managed through Deployments instead of being created directly.
 
@@ -240,7 +237,7 @@ kubectl get pods -n nginx -l app=nginx -o wide
 kubectl delete -f nginx/replicasets.yml
 ```
 
-**Important:** The ReplicaSet and Deployment manifests use the same `app: nginx` label. Avoid running these controllers together during isolated practice because their selectors can overlap and make resource behavior confusing. Practice them separately or use distinct labels and selectors.
+**Important:** The ReplicaSet and Deployment manifests use the same `app: nginx` label. Avoid running these controllers together during isolated practice because their selectors can overlap. Practice them separately or use distinct labels and selectors.
 
 ## 8. Kubernetes DaemonSet
 
@@ -249,8 +246,6 @@ kubectl delete -f nginx/replicasets.yml
 A DaemonSet ensures that a Pod runs on each eligible node in the Kubernetes cluster.
 
 DaemonSets are commonly used for node-level services such as log collectors, monitoring agents, and networking components.
-
-In this project, the DaemonSet runs an Nginx container.
 
 ### Manifest File
 
@@ -281,8 +276,6 @@ kubectl get pods -n nginx -o wide
 kubectl get nodes
 ```
 
-The number of DaemonSet Pods depends on the number of eligible nodes and any scheduling restrictions.
-
 ### Delete the DaemonSet
 
 ```bash
@@ -298,8 +291,6 @@ kubectl delete -f nginx/daemonsets.yml
 A Job creates Pods to execute a task until the required number of successful completions is reached.
 
 Jobs are useful for batch processing, one-time scripts, database migrations, and other finite tasks.
-
-In this project, a BusyBox container prints a message and sleeps for 10 seconds.
 
 ### Manifest File
 
@@ -343,8 +334,6 @@ The current manifest uses:
 - `parallelism: 2` — Kubernetes may run up to two Pods concurrently for the Job.
 - `restartPolicy: Never` — a failed container is not restarted inside the same Pod; the Job controller may create another Pod depending on its settings.
 
-Because the task is short, the Job may complete quickly.
-
 ### Delete the Job
 
 ```bash
@@ -356,8 +345,6 @@ kubectl delete -f nginx/job.yml
 ### What Is a CronJob?
 
 A CronJob creates Jobs according to a specified schedule. It is useful for recurring tasks such as backups, reports, scheduled maintenance, and periodic data processing.
-
-In this project, a BusyBox container runs on a one-minute schedule and executes directory creation and copy commands.
 
 ### Manifest File
 
@@ -381,15 +368,10 @@ kubectl get cronjobs -n nginx
 kubectl describe cronjob minute-backup -n nginx
 ```
 
-### Check Jobs Created by the CronJob
+### Check Jobs and Pods
 
 ```bash
 kubectl get jobs -n nginx
-```
-
-### Check Pods Created by the CronJob
-
-```bash
 kubectl get pods -n nginx
 ```
 
@@ -399,7 +381,7 @@ kubectl get pods -n nginx
 kubectl logs -n nginx <cronjob-pod-name>
 ```
 
-Replace `<cronjob-pod-name>` with an actual Pod name created by the CronJob.
+Replace `<cronjob-pod-name>` with an actual Pod name.
 
 ### CronJob Schedule Explanation
 
@@ -420,10 +402,8 @@ Minute Hour Day-of-Month Month Day-of-Week
 ### Important CronJob Notes
 
 - The current command creates `/data` and `/backups` directories and copies `/data` into `/backups`.
-- A meaningful backup requires files to exist in `/data`; otherwise, there may be little or no data to copy.
+- A meaningful backup requires files to exist in `/data`.
 - The manifest uses `hostPath` volumes, which refer to directories on the Kubernetes node where the Pod runs.
-- `hostPath` storage can be node-specific and should be used carefully outside a learning environment.
-- The shell command uses semicolons and `&&` together, so the final completion message might still print even if an earlier command fails.
 - Because the schedule runs every minute, it can create Jobs frequently.
 
 ### Delete the CronJob
@@ -432,63 +412,282 @@ Minute Hour Day-of-Month Month Day-of-Week
 kubectl delete -f nginx/cron-job.yml
 ```
 
-Delete the CronJob when you have finished practicing so that it stops scheduling new Jobs.
+## 11. Kubernetes Persistent Volume (PV) and Persistent Volume Claim (PVC)
 
-## 11. Apply All Manifests
+### What Is a Persistent Volume?
 
-Create the namespace first:
+A Persistent Volume (PV) is a storage resource available within a Kubernetes cluster. It defines storage capacity, access modes, storage type, and reclaim policy.
 
-```bash
-kubectl apply -f nginx/namespace.yml
-```
+### What Is a Persistent Volume Claim?
 
-You can then apply individual workload manifests for practice.
+A Persistent Volume Claim (PVC) is a request for storage by a user or application. Kubernetes matches the claim with a suitable Persistent Volume based on the storage requirements.
 
-### Apply the Deployment
+### What Is hostPath Storage?
 
-```bash
-kubectl apply -f nginx/deployment.yml
-```
+The `hostPath` volume type uses a directory or file from the node's filesystem as storage.
 
-### Apply the Standalone Pod
+**Note:** `hostPath` is useful for local development and learning. It has limitations for production workloads because the data is tied to a particular node.
 
-```bash
-kubectl apply -f nginx/pod.yml
-```
+### Manifest Files
 
-### Apply the ReplicaSet
+- `nginx/persistent-volume.yml`
+- `nginx/persistent-volume-claim.yml`
+
+### Step 1: Create the Persistent Volume
 
 ```bash
-kubectl apply -f nginx/replicasets.yml
+kubectl apply -f nginx/persistent-volume.yml
 ```
 
-### Apply the DaemonSet
+### Step 2: Create the Persistent Volume Claim
 
 ```bash
-kubectl apply -f nginx/daemonsets.yml
+kubectl apply -f nginx/persistent-volume-claim.yml
 ```
 
-### Apply the Job
+### Step 3: Verify PV and PVC Binding
 
 ```bash
-kubectl apply -f nginx/job.yml
+kubectl get pv
+kubectl get pvc -n nginx
 ```
 
-### Apply the CronJob
+### Describe PV and PVC
 
 ```bash
-kubectl apply -f nginx/cron-job.yml
+kubectl describe pv local-pv
+kubectl describe pvc local-pvc -n nginx
 ```
 
-**Recommended practice:** Apply, inspect, and delete each workload individually. Avoid running the Deployment, ReplicaSet, and DaemonSet together with their current shared Nginx labels.
+### Troubleshooting PV and PVC
 
-## 12. General Verification Commands
+```bash
+kubectl describe pv local-pv
+kubectl describe pvc local-pvc -n nginx
+kubectl get events -n nginx --sort-by=.metadata.creationTimestamp
+```
 
-### View All Common Resources
+Check storage capacity, access modes, storage class compatibility, and the `hostPath` configuration if the claim remains in `Pending` state.
+
+### Cleanup PV and PVC
+
+Delete the PVC first:
+
+```bash
+kubectl delete -f nginx/persistent-volume-claim.yml
+```
+
+Delete the PV afterward:
+
+```bash
+kubectl delete -f nginx/persistent-volume.yml
+```
+
+### PV and PVC Key Takeaways
+
+- A PV represents storage available to the cluster.
+- A PVC requests storage for an application.
+- Kubernetes binds a compatible PV to a PVC.
+- PVs are cluster-scoped, while PVCs are namespace-scoped.
+- Deleting a PV does not necessarily delete the underlying `hostPath` directory.
+
+## 12. Kubernetes Service
+
+### What Is a Kubernetes Service?
+
+A Kubernetes Service provides a stable network endpoint for accessing a group of Pods.
+
+Pods can be created, deleted, or replaced during application updates. Their IP addresses may change. A Service provides a consistent way to reach the matching Pods without depending on individual Pod IP addresses.
+
+### What Is a ClusterIP Service?
+
+`ClusterIP` is the default Kubernetes Service type. It exposes an application through an internal IP address that is reachable from within the cluster.
+
+It is commonly used for internal communication between application components.
+
+### Manifest File
+
+`nginx/service.yml`
+
+### Service Configuration
+
+The current Service manifest contains the following configuration:
+
+```yaml
+kind: Service
+apiVersion: v1
+metadata:
+  name: nginx-service
+  namespace: nginx
+spec:
+  selector:
+    app: nginx
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+  type: ClusterIP
+```
+
+### Explanation of the Configuration
+
+| Field | Description |
+|---|---|
+| `kind: Service` | Defines the Kubernetes resource type |
+| `name: nginx-service` | Name of the Service |
+| `namespace: nginx` | Namespace containing the Service |
+| `selector: app: nginx` | Selects Pods with the matching label |
+| `protocol: TCP` | Network protocol used by the Service |
+| `port: 80` | Port exposed by the Service |
+| `targetPort: 80` | Port on the selected Pods |
+| `type: ClusterIP` | Exposes the Service internally within the cluster |
+
+### Step 1: Create the Service
+
+Make sure the `nginx` namespace exists and matching Nginx Pods are running.
+
+```bash
+kubectl apply -f nginx/service.yml
+```
+
+### Step 2: Verify the Service
+
+```bash
+kubectl get services -n nginx
+```
+
+You can also use the short resource name:
+
+```bash
+kubectl get svc -n nginx
+```
+
+### Step 3: Describe the Service
+
+```bash
+kubectl describe service nginx-service -n nginx
+```
+
+This displays the Service IP, ports, selector, and associated endpoint information.
+
+### Step 4: Check Service Endpoints
+
+```bash
+kubectl get endpoints nginx-service -n nginx
+```
+
+On Kubernetes versions that support EndpointSlices, you can also run:
+
+```bash
+kubectl get endpointslices -n nginx
+```
+
+The Service should have endpoints when matching Pods are available and ready.
+
+If there are no endpoints, verify that the Pods have the `app: nginx` label and are ready to receive traffic.
+
+### Step 5: Test the Service Using Port Forwarding
+
+Run the following command:
+
+```bash
+kubectl port-forward -n nginx service/nginx-service 8080:80
+```
+
+Keep this terminal open.
+
+Open another terminal and execute:
+
+```bash
+curl http://localhost:8080
+```
+
+If the matching Nginx Pods are running and ready, you should receive the Nginx welcome page HTML.
+
+**Note:** Port forwarding is a testing method. It does not make the ClusterIP Service publicly accessible.
+
+### Step 6: Access the Service from Inside the Cluster
+
+If a suitable test Pod is available, you can test the Service using its DNS name:
+
+```bash
+curl http://nginx-service.nginx.svc.cluster.local
+```
+
+Run this command from a container or Pod inside the cluster that has `curl` installed and network access to the Service.
+
+The standard Service DNS name follows this format:
+
+```text
+<service-name>.<namespace>.svc.cluster.local
+```
+
+### Step 7: Troubleshoot the Service
+
+Check the Service configuration:
+
+```bash
+kubectl get svc nginx-service -n nginx -o wide
+kubectl describe svc nginx-service -n nginx
+```
+
+Check the selected Pods:
+
+```bash
+kubectl get pods -n nginx --show-labels
+```
+
+Check the endpoints:
+
+```bash
+kubectl get endpoints nginx-service -n nginx
+kubectl get endpointslices -n nginx
+```
+
+Check recent namespace events:
+
+```bash
+kubectl get events -n nginx --sort-by=.metadata.creationTimestamp
+```
+
+Common issues include:
+
+- **No endpoints:** No ready Pods match the Service selector.
+- **Connection refused:** The target container may not be listening on the expected port.
+- **Connection timeout:** Network connectivity or cluster networking may be preventing communication.
+- **Incorrect selector:** The Service selector does not match the Pod labels.
+- **Port mismatch:** The Service `targetPort` does not match the application's listening port.
+
+### Step 8: Delete the Service
+
+```bash
+kubectl delete -f nginx/service.yml
+```
+
+Verify that it has been removed:
+
+```bash
+kubectl get svc -n nginx
+```
+
+### Service Key Takeaways
+
+- A Service provides a stable endpoint for accessing Pods.
+- `ClusterIP` provides internal cluster access.
+- A Service uses label selectors to identify matching Pods.
+- `port` is the Service port, while `targetPort` is the destination port on the Pods.
+- Kubernetes Service DNS allows applications to communicate using service names.
+- A Service does not create application Pods; it routes traffic to matching Pods.
+
+## 13. General Verification Commands
+
+### View Common Resources
 
 ```bash
 kubectl get all -n nginx
 ```
+
+Note that `kubectl get all` does not include every Kubernetes resource type, including PVs and PVCs.
 
 ### View Pods
 
@@ -515,16 +714,24 @@ kubectl get replicasets -n nginx
 kubectl get daemonsets -n nginx
 ```
 
-### View Jobs
+### View Jobs and CronJobs
 
 ```bash
 kubectl get jobs -n nginx
+kubectl get cronjobs -n nginx
 ```
 
-### View CronJobs
+### View Services
 
 ```bash
-kubectl get cronjobs -n nginx
+kubectl get services -n nginx
+```
+
+### View Persistent Volumes and Claims
+
+```bash
+kubectl get pv
+kubectl get pvc -n nginx
 ```
 
 ### View Namespace Events
@@ -533,22 +740,21 @@ kubectl get cronjobs -n nginx
 kubectl get events -n nginx --sort-by=.metadata.creationTimestamp
 ```
 
-### Describe a Resource
+### Describe Resources
 
 ```bash
 kubectl describe pod -n nginx <pod-name>
 kubectl describe deployment nginx-deployment -n nginx
-kubectl describe replicaset nginx-replicasets -n nginx
-kubectl describe daemonset nginx-daemonsets -n nginx
-kubectl describe job demo-job -n nginx
-kubectl describe cronjob minute-backup -n nginx
+kubectl describe service nginx-service -n nginx
+kubectl describe pv local-pv
+kubectl describe pvc local-pvc -n nginx
 ```
 
 Replace placeholders with actual resource names where required.
 
-## 13. Troubleshooting
+## 14. Troubleshooting
 
-If a Pod is not starting or a workload is not behaving as expected, inspect its status and events.
+If a Pod or workload is not behaving as expected, inspect its status and events.
 
 ### Check Pod Status
 
@@ -581,12 +787,22 @@ Common errors include:
 - `CrashLoopBackOff` — the container repeatedly exits and restarts.
 - `Pending` — the Pod has not been scheduled or cannot start yet.
 - Failed scheduling events — the cluster cannot place the Pod on a suitable node.
+- PVC `Pending` — the claim has not been bound to a suitable volume.
+- Service without endpoints — no ready Pods match the Service selector.
 
 Always inspect the actual resource status and events before changing the manifest.
 
-## 14. Cleanup
+## 15. Cleanup
 
 Delete resources after completing the exercises.
+
+**Recommended order:** Delete the Service and workload resources first, then delete the PVC, PV, and finally the namespace if you no longer need it.
+
+### Delete the Service
+
+```bash
+kubectl delete -f nginx/service.yml
+```
 
 ### Delete the CronJob
 
@@ -624,200 +840,74 @@ kubectl delete -f nginx/pod.yml
 kubectl delete -f nginx/deployment.yml
 ```
 
-### Verify Remaining Resources
-
-```bash
-kubectl get all -n nginx
-kubectl get cronjobs,jobs -n nginx
-```
-
-### Delete the Namespace
-
-```bash
-kubectl delete -f nginx/namespace.yml
-```
-
-Deleting the namespace removes the namespaced resources inside it. Do not delete it if you still need other practice resources in the same namespace.
-
-
-
-
-# Kubernetes Persistent Volume (PV) and Persistent Volume Claim (PVC) Practice
-
-## Overview
-
-This practice covers Kubernetes Persistent Volumes (PV) and Persistent Volume Claims (PVC) using a local `hostPath` storage configuration.
-
-The resources are configured to work with the `nginx` namespace. This exercise demonstrates how Kubernetes storage resources are created, managed, inspected, and deleted.
-
-## Objectives
-
-- Understand Persistent Volumes (PV) and Persistent Volume Claims (PVC).
-- Create a Persistent Volume using `hostPath` storage.
-- Create a Persistent Volume Claim to request storage.
-- Verify the binding between PV and PVC.
-- Inspect storage resources using `kubectl`.
-- Practice cleaning up Kubernetes storage resources.
-
-## Concepts Covered
-
-### 1. Persistent Volume (PV)
-
-A Persistent Volume is a storage resource available within a Kubernetes cluster. It defines the storage capacity, access modes, storage type, and reclaim policy.
-
-### 2. Persistent Volume Claim (PVC)
-
-A Persistent Volume Claim is a request for storage by a user or application. Kubernetes matches the claim with a suitable Persistent Volume based on the requested capacity, access modes, and storage requirements.
-
-### 3. hostPath Storage
-
-The `hostPath` volume type uses a directory or file from the node's filesystem as storage.
-
-**Note:** `hostPath` is suitable for local development and learning purposes. It is generally not recommended for production workloads because the data is tied to a particular node.
-
-## Project Structure
-
-```text
-k8s-practice/
-└── nginx/
-    ├── persistent-volume.yml
-    └── persistent-volume-claim.yml
-```
-
-## Hands-On Practice
-
-### Step 1: Create the Persistent Volume
-
-Apply the Persistent Volume manifest.
-
-```bash
-kubectl apply -f nginx/persistent-volume.yml
-```
-
-Verify the Persistent Volume:
-
-```bash
-kubectl get pv
-```
-
-Inspect its configuration and status:
-
-```bash
-kubectl describe pv local-pv
-```
-
-### Step 2: Create the Persistent Volume Claim
-
-Apply the Persistent Volume Claim manifest.
-
-```bash
-kubectl apply -f nginx/persistent-volume-claim.yml
-```
-
-Verify the claim in the `nginx` namespace:
-
-```bash
-kubectl get pvc -n nginx
-```
-
-Inspect the claim details:
-
-```bash
-kubectl describe pvc local-pvc -n nginx
-```
-
-### Step 3: Verify PV and PVC Binding
-
-Check the Persistent Volume status:
-
-```bash
-kubectl get pv
-```
-
-Check the Persistent Volume Claim status:
-
-```bash
-kubectl get pvc -n nginx
-```
-
-Display Persistent Volumes and claims together:
-
-```bash
-kubectl get pv,pvc -n nginx
-```
-
-**Expected result:**
-
-- The Persistent Volume should show `Bound` when successfully claimed.
-- The Persistent Volume Claim should show `Bound` when successfully matched with a Persistent Volume.
-- The PV and PVC should reference each other through their binding information.
-
-Note: PVs are cluster-scoped resources, while PVCs are namespace-scoped resources. If the combined command does not display both resource types as expected, use the separate commands above.
-
-### Step 4: Troubleshooting
-
-If the PV or PVC remains in `Pending` state, inspect the resource details:
-
-```bash
-kubectl describe pv local-pv
-kubectl describe pvc local-pvc -n nginx
-kubectl get events -n nginx --sort-by=.metadata.creationTimestamp
-```
-
-Check the following:
-
-- The requested storage capacity matches the available PV capacity.
-- The access modes are compatible.
-- The PV and PVC storage classes are compatible.
-- The PVC references the correct namespace and volume configuration.
-- The `hostPath` directory exists on the appropriate Kubernetes node, if required by the manifest.
-
-### Step 5: Cleanup
-
-Delete the Persistent Volume Claim first:
+### Delete the Persistent Volume Claim
 
 ```bash
 kubectl delete -f nginx/persistent-volume-claim.yml
 ```
 
-Delete the Persistent Volume afterward:
+### Delete the Persistent Volume
 
 ```bash
 kubectl delete -f nginx/persistent-volume.yml
 ```
 
-Verify that the resources have been removed:
+### Verify Remaining Resources
 
 ```bash
-kubectl get pv
+kubectl get all -n nginx
 kubectl get pvc -n nginx
+kubectl get pv
 ```
 
-**Important:** Deleting a PV does not necessarily delete the underlying `hostPath` directory. Check the reclaim policy and the actual node filesystem before removing stored data.
+### Delete the Namespace
 
-## Key Takeaways
+Only delete the namespace if you no longer need its resources:
 
-- A PV represents storage available to the Kubernetes cluster.
-- A PVC requests storage for an application.
-- Kubernetes binds a compatible PV to a PVC.
-- PVs are cluster-scoped, whereas PVCs belong to namespaces.
-- `kubectl describe` helps investigate resource configuration and events.
-- `hostPath` is useful for learning but has limitations for production environments.
+```bash
+kubectl delete -f nginx/namespace.yml
+```
 
-## Useful Commands Reference
+Deleting the namespace removes its namespaced resources. Persistent Volumes are cluster-scoped and are not automatically removed simply because the namespace is deleted.
+
+**Important:** Check the PV reclaim policy and underlying storage before removing data.
+
+## 16. Useful Kubernetes Commands Reference
 
 | Command | Purpose |
 |---|---|
-| `kubectl apply -f <file>` | Create or update resources |
+| `kubectl get nodes` | List cluster nodes |
+| `kubectl get namespaces` | List namespaces |
+| `kubectl get pods -n nginx` | List Pods |
+| `kubectl get deployments -n nginx` | List Deployments |
+| `kubectl get replicasets -n nginx` | List ReplicaSets |
+| `kubectl get daemonsets -n nginx` | List DaemonSets |
+| `kubectl get jobs -n nginx` | List Jobs |
+| `kubectl get cronjobs -n nginx` | List CronJobs |
+| `kubectl get svc -n nginx` | List Services |
 | `kubectl get pv` | List Persistent Volumes |
-| `kubectl get pvc -n nginx` | List PVCs in the nginx namespace |
-| `kubectl describe pv local-pv` | Inspect PV details |
-| `kubectl describe pvc local-pvc -n nginx` | Inspect PVC details |
+| `kubectl get pvc -n nginx` | List Persistent Volume Claims |
+| `kubectl describe svc nginx-service -n nginx` | Inspect Service configuration |
+| `kubectl describe pv local-pv` | Inspect Persistent Volume details |
 | `kubectl get events -n nginx` | View namespace events |
 | `kubectl delete -f <file>` | Delete resources defined in a manifest |
 
+## 17. Learning Outcomes
+
+Through this practice, I learned how to:
+
+- Organize Kubernetes resources using Namespaces.
+- Run containers using Pods.
+- Manage application replicas using Deployments and ReplicaSets.
+- Run node-level workloads using DaemonSets.
+- Execute one-time tasks using Jobs.
+- Schedule recurring tasks using CronJobs.
+- Configure persistent storage using PVs and PVCs.
+- Expose applications internally using ClusterIP Services.
+- Understand Service selectors, ports, endpoints, and DNS.
+- Inspect resources and troubleshoot common Kubernetes issues.
+- Clean up resources safely after completing practical exercises.
+
 ## Practice Status
 
-This section documents hands-on practice with Kubernetes Persistent Volumes, Persistent Volume Claims, storage binding, resource inspection, troubleshooting, and cleanup.
-
-
+This repository documents hands-on Kubernetes practice with workloads, storage, networking, verification, troubleshooting, and resource cleanup.
