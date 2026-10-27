@@ -639,3 +639,185 @@ kubectl delete -f nginx/namespace.yml
 
 Deleting the namespace removes the namespaced resources inside it. Do not delete it if you still need other practice resources in the same namespace.
 
+
+
+
+# Kubernetes Persistent Volume (PV) and Persistent Volume Claim (PVC) Practice
+
+## Overview
+
+This practice covers Kubernetes Persistent Volumes (PV) and Persistent Volume Claims (PVC) using a local `hostPath` storage configuration.
+
+The resources are configured to work with the `nginx` namespace. This exercise demonstrates how Kubernetes storage resources are created, managed, inspected, and deleted.
+
+## Objectives
+
+- Understand Persistent Volumes (PV) and Persistent Volume Claims (PVC).
+- Create a Persistent Volume using `hostPath` storage.
+- Create a Persistent Volume Claim to request storage.
+- Verify the binding between PV and PVC.
+- Inspect storage resources using `kubectl`.
+- Practice cleaning up Kubernetes storage resources.
+
+## Concepts Covered
+
+### 1. Persistent Volume (PV)
+
+A Persistent Volume is a storage resource available within a Kubernetes cluster. It defines the storage capacity, access modes, storage type, and reclaim policy.
+
+### 2. Persistent Volume Claim (PVC)
+
+A Persistent Volume Claim is a request for storage by a user or application. Kubernetes matches the claim with a suitable Persistent Volume based on the requested capacity, access modes, and storage requirements.
+
+### 3. hostPath Storage
+
+The `hostPath` volume type uses a directory or file from the node's filesystem as storage.
+
+**Note:** `hostPath` is suitable for local development and learning purposes. It is generally not recommended for production workloads because the data is tied to a particular node.
+
+## Project Structure
+
+```text
+k8s-practice/
+└── nginx/
+    ├── persistent-volume.yml
+    └── persistent-volume-claim.yml
+```
+
+## Hands-On Practice
+
+### Step 1: Create the Persistent Volume
+
+Apply the Persistent Volume manifest.
+
+```bash
+kubectl apply -f nginx/persistent-volume.yml
+```
+
+Verify the Persistent Volume:
+
+```bash
+kubectl get pv
+```
+
+Inspect its configuration and status:
+
+```bash
+kubectl describe pv local-pv
+```
+
+### Step 2: Create the Persistent Volume Claim
+
+Apply the Persistent Volume Claim manifest.
+
+```bash
+kubectl apply -f nginx/persistent-volume-claim.yml
+```
+
+Verify the claim in the `nginx` namespace:
+
+```bash
+kubectl get pvc -n nginx
+```
+
+Inspect the claim details:
+
+```bash
+kubectl describe pvc local-pvc -n nginx
+```
+
+### Step 3: Verify PV and PVC Binding
+
+Check the Persistent Volume status:
+
+```bash
+kubectl get pv
+```
+
+Check the Persistent Volume Claim status:
+
+```bash
+kubectl get pvc -n nginx
+```
+
+Display Persistent Volumes and claims together:
+
+```bash
+kubectl get pv,pvc -n nginx
+```
+
+**Expected result:**
+
+- The Persistent Volume should show `Bound` when successfully claimed.
+- The Persistent Volume Claim should show `Bound` when successfully matched with a Persistent Volume.
+- The PV and PVC should reference each other through their binding information.
+
+Note: PVs are cluster-scoped resources, while PVCs are namespace-scoped resources. If the combined command does not display both resource types as expected, use the separate commands above.
+
+### Step 4: Troubleshooting
+
+If the PV or PVC remains in `Pending` state, inspect the resource details:
+
+```bash
+kubectl describe pv local-pv
+kubectl describe pvc local-pvc -n nginx
+kubectl get events -n nginx --sort-by=.metadata.creationTimestamp
+```
+
+Check the following:
+
+- The requested storage capacity matches the available PV capacity.
+- The access modes are compatible.
+- The PV and PVC storage classes are compatible.
+- The PVC references the correct namespace and volume configuration.
+- The `hostPath` directory exists on the appropriate Kubernetes node, if required by the manifest.
+
+### Step 5: Cleanup
+
+Delete the Persistent Volume Claim first:
+
+```bash
+kubectl delete -f nginx/persistent-volume-claim.yml
+```
+
+Delete the Persistent Volume afterward:
+
+```bash
+kubectl delete -f nginx/persistent-volume.yml
+```
+
+Verify that the resources have been removed:
+
+```bash
+kubectl get pv
+kubectl get pvc -n nginx
+```
+
+**Important:** Deleting a PV does not necessarily delete the underlying `hostPath` directory. Check the reclaim policy and the actual node filesystem before removing stored data.
+
+## Key Takeaways
+
+- A PV represents storage available to the Kubernetes cluster.
+- A PVC requests storage for an application.
+- Kubernetes binds a compatible PV to a PVC.
+- PVs are cluster-scoped, whereas PVCs belong to namespaces.
+- `kubectl describe` helps investigate resource configuration and events.
+- `hostPath` is useful for learning but has limitations for production environments.
+
+## Useful Commands Reference
+
+| Command | Purpose |
+|---|---|
+| `kubectl apply -f <file>` | Create or update resources |
+| `kubectl get pv` | List Persistent Volumes |
+| `kubectl get pvc -n nginx` | List PVCs in the nginx namespace |
+| `kubectl describe pv local-pv` | Inspect PV details |
+| `kubectl describe pvc local-pvc -n nginx` | Inspect PVC details |
+| `kubectl get events -n nginx` | View namespace events |
+| `kubectl delete -f <file>` | Delete resources defined in a manifest |
+
+## Practice Status
+
+This section documents hands-on practice with Kubernetes Persistent Volumes, Persistent Volume Claims, storage binding, resource inspection, troubleshooting, and cleanup.
+
+
